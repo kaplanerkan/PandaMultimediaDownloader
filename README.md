@@ -40,15 +40,32 @@ cd PandaMultimediaDownloader
 dotnet run --project src/PandaMultimediaDownloader
 ```
 
-Publish a single-file build:
+### Ship it (no .NET required on the target machine)
 
 ```powershell
-dotnet publish src/PandaMultimediaDownloader -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
+.\build.ps1
 ```
 
-The executable lands in `src/PandaMultimediaDownloader/bin/Release/net9.0-windows/win-x64/publish/`.
-Copy the whole folder anywhere; `tools/`, `downloaded/` and `settings.json` are
-created next to it.
+This runs a **self-contained** single-file publish (the .NET 9 runtime is embedded
+in the exe) and downloads `yt-dlp`, `ffmpeg` and `deno` into `tools/`. Result:
+
+```
+dist/PandaMultimediaDownloader/
+  PandaMultimediaDownloader.exe   ~57 MB, runtime included
+  tools/yt-dlp.exe
+  tools/ffmpeg.exe
+  tools/deno.exe
+dist/PandaMultimediaDownloader-v1.0.0-win-x64.zip
+```
+
+Copy the folder (or unzip) anywhere and run the exe. `downloaded/` and
+`settings.json` are created next to it.
+
+Options: `.\build.ps1 -NoTools` skips the tool download (the app fetches them on
+first run instead); plain `dotnet publish src/PandaMultimediaDownloader -c Release`
+does the same as the script without zipping, `-p:DownloadTools=false` to opt out.
+
+Pushing a `v*` tag builds the zip on GitHub Actions and attaches it to a release.
 
 ## Tests
 
@@ -78,7 +95,7 @@ tests/PandaMultimediaDownloader.Tests/
 |---|---|
 | "Sign in to confirm you're not a bot" / login required | Select your browser under **Use browser cookies** and retry. |
 | Download fails right after a site update | Press **Update tools**. |
-| First start takes a while | `yt-dlp` (~17 MB), `deno` (~90 MB) and, if missing, `ffmpeg` are being downloaded once. |
+| First start takes a while | Only when `tools/` is missing: `yt-dlp` (~17 MB), `deno` (~90 MB) and, if not on `PATH`, `ffmpeg` are downloaded once. Builds from `build.ps1` ship them already. |
 
 ## Türkçe
 

@@ -12,6 +12,17 @@
     <Authors>Erkan Kaplan</Authors>
     <Product>Panda Multimedia Downloader</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Ship the .NET 9 runtime inside the build so target machines need nothing installed. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+
+    <!-- Set -p:DownloadTools=false to skip fetching yt-dlp / ffmpeg / deno on publish. -->
+    <DownloadTools Condition="'$(DownloadTools)' == ''">true</DownloadTools>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,5 +33,10 @@
   <ItemGroup>
     <PackageReference Include="YoutubeDLSharp" Version="1.2.0" />
   </ItemGroup>
+
+  <!-- After publish: place yt-dlp.exe, ffmpeg.exe and deno.exe next to the executable in tools/. -->
+  <Target Name="DownloadTools" AfterTargets="Publish" Condition="'$(DownloadTools)' == 'true'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\download-tools.ps1&quot; -Destination &quot;$(PublishDir)tools&quot;" />
+  </Target>
 
 </Project>
