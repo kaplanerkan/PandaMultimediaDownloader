@@ -64,6 +64,7 @@ public sealed class ToolManager
                 throw new FileNotFoundException("ffmpeg", ffmpeg);
             }
 
+            ExposeToolsOnPath();
             return new ToolPaths(YtDlpPath, ffmpeg);
         }
         finally
@@ -76,11 +77,33 @@ public sealed class ToolManager
     public async Task<ToolPaths> UpdateAsync(IProgress<string>? downloading, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
+        var backup = YtDlpPath + ".bak";
         try
         {
             if (File.Exists(YtDlpPath))
             {
-                File.Delete(YtDlpPath);
+                File.Move(YtDlpPath, backup, overwrite: true);
+            }
+
+            try
+            {
+                downloading?.Report("yt-dlp");
+                await Utils.DownloadYtDlp(ToolsDir);
+            }
+            catch
+            {
+                // Keep the previous binary usable when the download fails.
+                if (File.Exists(backup) && !File.Exists(YtDlpPath))
+                {
+                    File.Move(backup, YtDlpPath);
+                }
+
+                throw;
+            }
+
+            if (File.Exists(backup))
+            {
+                File.Delete(backup);
             }
         }
         finally
@@ -89,6 +112,19 @@ public sealed class ToolManager
         }
 
         return await EnsureAsync(downloading, ct);
+    }
+
+    /// <summary>yt-dlp locates deno/ffmpeg via PATH; make the bundled tools visible to child processes.</summary>
+    private static void ExposeToolsOnPath()
+    {
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var entries = path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        if (entries.Any(e => string.Equals(e.Trim(), ToolsDir, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        Environment.SetEnvironmentVariable("PATH", ToolsDir + Path.PathSeparator + path);
     }
 
     private static string? FindOnPath(string fileName)

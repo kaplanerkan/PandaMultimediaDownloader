@@ -28,7 +28,7 @@ public sealed class Loc : INotifyPropertyChanged
         get => _language;
         set
         {
-            if (!Strings.ContainsKey(value) || value == _language)
+            if (value is null || !Strings.ContainsKey(value) || value == _language)
             {
                 return;
             }

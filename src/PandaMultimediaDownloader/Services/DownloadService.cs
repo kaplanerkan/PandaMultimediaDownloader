@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using YoutubeDLSharp;
 using YoutubeDLSharp.Options;
 
@@ -29,10 +30,14 @@ public sealed record DownloadRequest(
 public sealed record DownloadResult(string BaseName, string? Title, IReadOnlyList<string> Files);
 
 /// <summary>Downloads a media URL as MP4 and/or MP3 via yt-dlp + ffmpeg.</summary>
-public sealed class DownloadService(ToolManager tools)
+public sealed partial class DownloadService(ToolManager tools)
 {
     private const string VideoFormat =
         "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
+
+    /// <summary>Matches yt-dlp per-stream intermediates such as <c>name.f137.mp4</c> or <c>name.fdash-123a.m4a</c>.</summary>
+    [GeneratedRegex(@"\.f[\w-]+\.(mp4|m4a|webm|mkv|opus|aac)$", RegexOptions.IgnoreCase)]
+    private static partial Regex FragmentRegex();
 
     public async Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
@@ -66,22 +71,67 @@ public sealed class DownloadService(ToolManager tools)
         var files = new List<string>();
         string? mp4Path = null;
 
-        if (request.Mp4)
+        try
         {
-            mp4Path = await DownloadVideoAsync(ydl, request, options, baseName, status, log, ct);
-            files.Add(mp4Path);
-        }
+            if (request.Mp4)
+            {
+                mp4Path = await DownloadVideoAsync(ydl, request, options, baseName, status, log, ct);
+                files.Add(mp4Path);
+            }
 
-        if (request.Mp3)
+            if (request.Mp3)
+            {
+                var mp3Path = mp4Path is null
+                    ? await DownloadAudioAsync(ydl, request, options, baseName, status, log, ct)
+                    : await ExtractMp3Async(paths.Ffmpeg, mp4Path, baseName, request.OutputDir, status, ct);
+                files.Add(mp3Path);
+            }
+        }
+        finally
         {
-            var mp3Path = mp4Path is null
-                ? await DownloadAudioAsync(ydl, request, options, baseName, status, log, ct)
-                : await ExtractMp3Async(paths.Ffmpeg, mp4Path, baseName, request.OutputDir, status, ct);
-            files.Add(mp3Path);
+            await CleanupPartialFilesAsync(request.OutputDir, baseName, files);
         }
 
         return new DownloadResult(baseName, title, files);
     }
+
+    /// <summary>
+    /// Removes yt-dlp leftovers (.part, .ytdl, .fNNN.* fragments) after cancel or failure.
+    /// A killed yt-dlp may still hold handles for a moment, so deletion is retried briefly.
+    /// </summary>
+    private static async Task CleanupPartialFilesAsync(string dir, string baseName, IReadOnlyCollection<string> keep)
+    {
+        if (!Directory.Exists(dir))
+        {
+            return;
+        }
+
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var leftovers = Directory.EnumerateFiles(dir, baseName + "*")
+                .Where(f => !keep.Contains(f, StringComparer.OrdinalIgnoreCase))
+                .Where(f => IsTemporary(Path.GetFileName(f)))
+                .ToList();
+
+            if (leftovers.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var file in leftovers)
+            {
+                TryDelete(file);
+            }
+
+            await Task.Delay(200);
+        }
+    }
+
+    private static bool IsTemporary(string name) =>
+        name.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith(".ytdl", StringComparison.OrdinalIgnoreCase)
+        || name.Contains(".part-Frag", StringComparison.OrdinalIgnoreCase)
+        || FragmentRegex().IsMatch(name);
 
     private static async Task<string?> FetchTitleAsync(YoutubeDL ydl, string url, OptionSet options, CancellationToken ct)
     {
@@ -118,7 +168,7 @@ public sealed class DownloadService(ToolManager tools)
             log,
             options);
 
-        return ResolveOutput(result, target, ".mp4");
+        return ResolveOutput(result, target, ".mp4", ct);
     }
 
     private static async Task<string> DownloadAudioAsync(
@@ -141,7 +191,7 @@ public sealed class DownloadService(ToolManager tools)
             log,
             options);
 
-        return ResolveOutput(result, target, ".mp3");
+        return ResolveOutput(result, target, ".mp3", ct);
     }
 
     /// <summary>Re-encodes the audio track of an already downloaded MP4 to MP3 (avoids a second network download).</summary>
@@ -212,8 +262,11 @@ public sealed class DownloadService(ToolManager tools)
             status.Report(new DownloadStatus(phase, target, percent, p.DownloadSpeed, p.ETA));
         });
 
-    private static string ResolveOutput(RunResult<string> result, string expected, string extension)
+    private static string ResolveOutput(RunResult<string> result, string expected, string extension, CancellationToken ct)
     {
+        // yt-dlp killed by cancel reports a failed run rather than throwing.
+        ct.ThrowIfCancellationRequested();
+
         if (!result.Success)
         {
             var error = result.ErrorOutput?.LastOrDefault(l => l.Contains("ERROR", StringComparison.OrdinalIgnoreCase))
