@@ -61,6 +61,19 @@ dist/PandaMultimediaDownloader-v1.0.0-win-x64.zip
 Copy the folder (or unzip) anywhere and run the exe. `downloaded/` and
 `settings.json` are created next to it.
 
+### Installer
+
+```powershell
+.\build.ps1 -Installer
+```
+
+Also produces `dist/PandaMultimediaDownloader-v1.0.0-win-x64-setup.exe`
+(needs [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`).
+The setup installs per user into `%LOCALAPPDATA%\Programs\Panda Multimedia Downloader`
+(no admin rights, the app can write its files next to the exe), adds a Start menu
+entry and an optional desktop shortcut, and speaks Türkçe / Deutsch / English.
+Uninstalling removes `tools/` and `settings.json` but keeps `downloaded/`.
+
 Options: `.\build.ps1 -NoTools` skips the tool download (the app fetches them on
 first run instead); plain `dotnet publish src/PandaMultimediaDownloader -c Release`
 does the same as the script without zipping, `-p:DownloadTools=false` to opt out.
