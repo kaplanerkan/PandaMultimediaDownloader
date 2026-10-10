@@ -20,18 +20,26 @@ jobs:
       - name: Test
         run: dotnet test -c Release --nologo
 
-      - name: Publish (self-contained, tools included)
-        run: .\build.ps1
+      - name: Ensure Inno Setup 6
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+        shell: pwsh
+
+      - name: Publish (self-contained, tools included) + installer
+        run: .\build.ps1 -Installer
         shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PandaMultimediaDownloader-win-x64
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/*-setup.exe
